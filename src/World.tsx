@@ -12,7 +12,7 @@ import {
   type PlayerMovement,
   type User,
 } from '@xrift/world-components'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export interface WorldProps {
   position?: [number, number, number]
@@ -190,6 +190,12 @@ function countCollectedPellets(pellets: Record<string, boolean>) {
   return Object.values(pellets).filter(Boolean).length
 }
 
+function formatTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.max(0, seconds % 60)
+  return `${minutes}:${rest.toString().padStart(2, '0')}`
+}
+
 function SkyDome() {
   return (
     <group>
@@ -300,12 +306,42 @@ function ControlButton({
   )
 }
 
+function WallButton({
+  id,
+  label,
+  position,
+  color,
+  onInteract,
+}: {
+  id: string
+  label: string
+  position: [number, number, number]
+  color: string
+  onInteract: () => void
+}) {
+  return (
+    <Interactable id={id} interactionText={label} onInteract={onInteract} type="button">
+      <group position={position}>
+        <mesh castShadow>
+          <boxGeometry args={[2.15, 0.58, 0.22]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.18} roughness={0.48} />
+        </mesh>
+        <Text position={[0, 0.02, -0.14]} fontSize={0.2} color="#ffffff" anchorX="center" anchorY="middle">
+          {label}
+        </Text>
+      </group>
+    </Interactable>
+  )
+}
+
 function RoleBoard({
   state,
   localUserId,
   localName,
   pacName,
   monsterNames,
+  remainingSec,
+  collectedPellets,
   onSelectPac,
   onJoinMonster,
   onStart,
@@ -316,6 +352,8 @@ function RoleBoard({
   localName: string
   pacName: string
   monsterNames: string[]
+  remainingSec: number
+  collectedPellets: number
   onSelectPac: () => void
   onJoinMonster: () => void
   onStart: () => void
@@ -326,29 +364,55 @@ function RoleBoard({
     : state.monsterIds.includes(localUserId)
       ? 'ガード'
       : '未選択'
+  const modeText = state.mode === 'playing'
+    ? '進行中'
+    : state.mode === 'result'
+      ? state.winner === 'eater'
+        ? 'イーター勝利'
+        : 'ガード勝利'
+      : '待機中'
 
   return (
-    <group position={[0, 2.2, 16.3]} rotation={[0, Math.PI, 0]}>
+    <group position={[0, 3.0, 16.3]} rotation={[0, Math.PI, 0]}>
       <mesh>
-        <boxGeometry args={[9.5, 4.2, 0.28]} />
+        <boxGeometry args={[12.2, 5.4, 0.28]} />
         <meshStandardMaterial color="#111827" emissive="#1e293b" emissiveIntensity={0.3} />
       </mesh>
-      <Text position={[0, 1.55, -0.2]} fontSize={0.42} color="#f8fafc" anchorX="center">
-        X-Eater Game / 役割選択
+      <Text position={[0, 2.18, -0.2]} fontSize={0.42} color="#f8fafc" anchorX="center">
+        X-Eater Game
       </Text>
-      <Text position={[0, 1.0, -0.2]} fontSize={0.2} color="#c7d2fe" anchorX="center">
-        上部デッキで黄色い駒を操作。迷路内の参加者はガードとして追跡します。
+      <Text position={[0, 1.72, -0.2]} fontSize={0.22} color="#c7d2fe" anchorX="center">
+        1人が上部デッキで黄色いイーターを操作し、迷路内のガードが追いかけます。
       </Text>
-      <Text position={[0, 0.56, -0.2]} fontSize={0.19} color="#fef3c7" anchorX="center">
+      <Text position={[0, 1.28, -0.2]} fontSize={0.22} color="#fde047" anchorX="center">
+        {`状態: ${modeText} / 残り ${formatTime(remainingSec)} / 小粒 ${collectedPellets}/${PELLET_COUNT}`}
+      </Text>
+      <Text position={[0, 0.86, -0.2]} fontSize={0.18} color="#fef3c7" anchorX="center">
         {`あなた: ${localName} / 役割: ${localRole}`}
       </Text>
-      <Text position={[0, 0.18, -0.2]} fontSize={0.18} color="#bbf7d0" anchorX="center">
+      <Text position={[0, 0.52, -0.2]} fontSize={0.17} color="#bbf7d0" anchorX="center">
         {`操縦者: ${pacName} / ガード: ${monsterNames.length ? monsterNames.join(', ') : '未参加'}`}
       </Text>
-      <ControlButton id="select-eater" label="操縦者になる" position={[-2.8, -0.8, -0.36]} color="#f59e0b" onInteract={onSelectPac} />
-      <ControlButton id="select-guard" label="ガードになる" position={[0, -0.8, -0.36]} color="#2563eb" onInteract={onJoinMonster} />
-      <ControlButton id="start-round" label="開始" position={[2.8, -0.8, -0.36]} color="#16a34a" onInteract={onStart} />
-      <ControlButton id="reset-round" label="リセット" position={[0, -1.5, -0.36]} color="#64748b" onInteract={onReset} />
+      <Text position={[0, 0.14, -0.2]} fontSize={0.16} color="#e0f2fe" anchorX="center">
+        イーター: WASD/方向ボタンで進む黄色い駒。小粒と赤い大粒を集めます。
+      </Text>
+      <Text position={[0, -0.18, -0.2]} fontSize={0.16} color="#e0f2fe" anchorX="center">
+        ガード: 迷路内を歩き、黄色い駒に1.15m以内まで近づくと捕獲します。
+      </Text>
+      <Text position={[0, -0.5, -0.2]} fontSize={0.16} color="#e0f2fe" anchorX="center">
+        得点: 小粒 +10 / 赤い大粒 +200 / 捕獲されると -100。全粒回収でイーター勝利。
+      </Text>
+      <Text position={[0, -0.82, -0.2]} fontSize={0.16} color="#e0f2fe" anchorX="center">
+        時間: 120秒。時間切れならガード勝利。ラウンド後はリセットで再戦できます。
+      </Text>
+      <mesh position={[0, -2.1, -0.58]} castShadow>
+        <boxGeometry args={[10.2, 0.86, 0.18]} />
+        <meshStandardMaterial color="#020617" emissive="#0f172a" emissiveIntensity={0.32} />
+      </mesh>
+      <WallButton id="select-eater" label="イーターになる" position={[-3.75, -2.1, -0.78]} color="#f59e0b" onInteract={onSelectPac} />
+      <WallButton id="select-guard" label="ガードになる" position={[-1.25, -2.1, -0.78]} color="#2563eb" onInteract={onJoinMonster} />
+      <WallButton id="start-round" label="開始" position={[1.25, -2.1, -0.78]} color="#16a34a" onInteract={onStart} />
+      <WallButton id="reset-round" label="リセット" position={[3.75, -2.1, -0.78]} color="#64748b" onInteract={onReset} />
     </group>
   )
 }
@@ -356,10 +420,12 @@ function RoleBoard({
 function PilotDeck({
   state,
   isPacController,
+  remainingSec,
   onDirection,
 }: {
   state: XState
   isPacController: boolean
+  remainingSec: number
   onDirection: (direction: Direction) => void
 }) {
   const enabledText = isPacController ? '操作中: ボタンまたはWASD' : '観戦席: 操縦者だけ操作できます'
@@ -383,7 +449,7 @@ function PilotDeck({
         {enabledText}
       </Text>
       <Text position={[0, 0.28, -2.6]} fontSize={0.18} color="#fde68a" anchorX="center">
-        {`方向: ${state.pacDirection} / スコア: ${state.score}`}
+        {`残り ${formatTime(remainingSec)} / 方向: ${state.pacDirection} / スコア: ${state.score}`}
       </Text>
       <ControlButton id="pac-up" label="上" position={[0, 0.35, -0.9]} color="#f59e0b" onInteract={() => onDirection('up')} />
       <ControlButton id="pac-left" label="左" position={[-1.65, 0.35, 0.4]} color="#f59e0b" onInteract={() => onDirection('left')} />
@@ -403,12 +469,12 @@ function Scoreboard({
   collectedPellets: number
 }) {
   const status = state.mode === 'playing'
-    ? 'PLAYING'
+    ? '進行中'
     : state.mode === 'result'
       ? state.winner === 'eater'
-        ? 'EATER CLEAR'
-        : 'GUARDS WIN'
-      : 'LOBBY'
+        ? 'イーター勝利'
+        : 'ガード勝利'
+      : '待機中'
 
   return (
     <group position={[0, 5.2, -15.2]}>
@@ -420,7 +486,7 @@ function Scoreboard({
         {`X-EATER SCORE / ${status}`}
       </Text>
       <Text position={[0, 0.22, -0.24]} fontSize={0.28} color="#fde047" anchorX="center">
-        {`SCORE ${state.score}  TIME ${remainingSec}s  PELLETS ${collectedPellets}/${PELLET_COUNT}`}
+        {`SCORE ${state.score}  TIMER ${formatTime(remainingSec)}  PELLETS ${collectedPellets}/${PELLET_COUNT}`}
       </Text>
       <Text position={[0, -0.42, -0.24]} fontSize={0.24} color="#fca5a5" anchorX="center">
         {`CATCH ${state.catches}  CHERRY ${state.cherry.collected ? 'GET' : 'LIVE'}  GUARDS ${state.monsterIds.length}`}
@@ -431,22 +497,31 @@ function Scoreboard({
 
 function Legend() {
   return (
-    <group position={[-14.8, 1.5, 15.9]} rotation={[0, Math.PI, 0]}>
+    <group position={[-15.2, 1.95, 15.9]} rotation={[0, Math.PI, 0]}>
       <mesh>
-        <boxGeometry args={[5.6, 2.1, 0.2]} />
+        <boxGeometry args={[6.8, 3.0, 0.2]} />
         <meshStandardMaterial color="#172554" emissive="#1d4ed8" emissiveIntensity={0.18} />
       </mesh>
-      <Text position={[0, 0.66, -0.16]} fontSize={0.22} color="#ffffff" anchorX="center">
-        v0 ルール
+      <Text position={[0, 1.08, -0.16]} fontSize={0.24} color="#ffffff" anchorX="center">
+        用語と流れ
       </Text>
-      <Text position={[0, 0.18, -0.16]} fontSize={0.15} color="#dbeafe" anchorX="center">
-        小粒 +10 / 赤い大粒 +200
+      <Text position={[0, 0.62, -0.16]} fontSize={0.145} color="#dbeafe" anchorX="center">
+        イーター: 上のデッキから動かす黄色い駒
       </Text>
-      <Text position={[0, -0.18, -0.16]} fontSize={0.15} color="#dbeafe" anchorX="center">
-        ガードが黄色い駒へ接近すると捕獲
+      <Text position={[0, 0.28, -0.16]} fontSize={0.145} color="#dbeafe" anchorX="center">
+        ガード: 迷路内で追い、1.15m以内で捕獲
       </Text>
-      <Text position={[0, -0.54, -0.16]} fontSize={0.15} color="#dbeafe" anchorX="center">
-        120秒制。役割はいつでも交代可能
+      <Text position={[0, -0.06, -0.16]} fontSize={0.145} color="#dbeafe" anchorX="center">
+        小粒: +10 / 赤い大粒チェリー: +200
+      </Text>
+      <Text position={[0, -0.4, -0.16]} fontSize={0.145} color="#dbeafe" anchorX="center">
+        開始: 役割を選んで、中央の開始ボタン
+      </Text>
+      <Text position={[0, -0.74, -0.16]} fontSize={0.145} color="#dbeafe" anchorX="center">
+        勝利: 全粒回収でイーター、時間切れでガード
+      </Text>
+      <Text position={[0, -1.08, -0.16]} fontSize={0.145} color="#fef3c7" anchorX="center">
+        タイマーは入口ボード・上部デッキ・頭上スコアに表示
       </Text>
     </group>
   )
@@ -512,11 +587,11 @@ export function World({ position = [0, 0, 0], scale = 1 }: WorldProps) {
   const localUserId = localEffectiveUser.id
   const lastStepAtRef = useRef(0)
   const lastCatchCheckAtRef = useRef(0)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const isPacController = state.pacControllerId === localUserId
   const collectedPellets = countCollectedPellets(state.pellets)
-  const now = Date.now()
   const remainingSec = state.mode === 'playing' && state.roundStartedAt
-    ? Math.max(0, Math.ceil((state.roundStartedAt + state.roundDurationSec * 1000 - now) / 1000))
+    ? Math.max(0, Math.ceil((state.roundStartedAt + state.roundDurationSec * 1000 - nowMs) / 1000))
     : state.roundDurationSec
 
   const users = useMemo(() => [localEffectiveUser, ...remoteUsers], [localEffectiveUser, remoteUsers])
@@ -525,6 +600,40 @@ export function World({ position = [0, 0, 0], scale = 1 }: WorldProps) {
     ? getDisplayName(userById.get(state.pacControllerId), '操縦者')
     : '未選択'
   const monsterNames = state.monsterIds.map((id) => getDisplayName(userById.get(id), 'ガード'))
+
+  useEffect(() => {
+    if (state.mode !== 'playing') {
+      setNowMs(Date.now())
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 250)
+
+    return () => window.clearInterval(intervalId)
+  }, [state.mode])
+
+  useEffect(() => {
+    if (state.mode !== 'playing' || state.roundStartedAt === null) {
+      return
+    }
+
+    if (nowMs < state.roundStartedAt + state.roundDurationSec * 1000) {
+      return
+    }
+
+    setState((current) => {
+      if (current.mode !== 'playing') return current
+
+      return {
+        ...current,
+        mode: 'result',
+        winner: 'guards',
+        pacDirection: 'idle',
+      }
+    })
+  }, [nowMs, setState, state.mode, state.roundDurationSec, state.roundStartedAt])
 
   const setDirection = useCallback(
     (direction: Direction) => {
@@ -699,7 +808,7 @@ export function World({ position = [0, 0, 0], scale = 1 }: WorldProps) {
       ))}
       <Cherry state={state.cherry} />
       <EaterPiece cell={state.pacCell} direction={state.pacDirection} />
-      <PilotDeck state={state} isPacController={isPacController} onDirection={setDirection} />
+      <PilotDeck state={state} isPacController={isPacController} remainingSec={remainingSec} onDirection={setDirection} />
       <Scoreboard state={state} remainingSec={remainingSec} collectedPellets={collectedPellets} />
       <RoleBoard
         state={state}
@@ -707,6 +816,8 @@ export function World({ position = [0, 0, 0], scale = 1 }: WorldProps) {
         localName={getDisplayName(localEffectiveUser, 'あなた')}
         pacName={pacName}
         monsterNames={monsterNames}
+        remainingSec={remainingSec}
+        collectedPellets={collectedPellets}
         onSelectPac={selectPac}
         onJoinMonster={joinMonster}
         onStart={startRound}
